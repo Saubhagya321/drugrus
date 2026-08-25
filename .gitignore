@@ -1,0 +1,50 @@
+# Secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Sample invoice PDFs (client data)
+*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# Logs
+logs/
+*.log
+
+# API run outputs (intermediate results)
+api_run/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/

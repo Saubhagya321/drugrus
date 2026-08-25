@@ -1,0 +1,159 @@
+{
+  "info": {
+    "name": "DrugsRus Invoice Processing API",
+    "description": "Local testing collection for invoice extraction and product matching",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Invoice Extraction",
+      "item": [
+        {
+          "name": "Extract Invoice from PDF",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "http://localhost:8001/extract-invoice",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8001",
+              "path": [
+                "extract-invoice"
+              ]
+            },
+            "description": "Upload a PDF invoice file to extract invoice structure and details.\n\nResponse includes:\n- Invoice metadata (company, invoice number, dates, etc.)\n- Line items/products\n- Totals and amounts"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Product Matching",
+      "item": [
+        {
+          "name": "Match Supplier Products",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actual\": \"Ibuprofen 400mg Tablets\",\n  \"candidates\": [\n    \"Ibuprofen 400 mg tablet\",\n    \"Aspirin 500mg\",\n    \"Paracetamol 1000mg tablet\",\n    \"Ibuprofen 200mg\",\n    \"Ibuprofen tablets 400mg\",\n    \"Naproxen 250mg\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8001/match-supplier",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8001",
+              "path": [
+                "match-supplier"
+              ]
+            },
+            "description": "Find similar products from a list of candidates using text similarity scoring.\n\nReturns top matches sorted by similarity score (higher = better match)."
+          },
+          "response": []
+        },
+        {
+          "name": "Match Products (Country-Aware)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actual\": \"Aspirin 500mg\",\n  \"actualRecord\": {\n    \"invoiceCountry\": {\n      \"countryId\": 1,\n      \"countryCode\": \"DE\",\n      \"countryName\": \"Germany\"\n    },\n    \"supplierCountries\": [\n      {\n        \"countryId\": 1,\n        \"countryCode\": \"DE\",\n        \"countryName\": \"Germany\"\n      },\n      {\n        \"countryId\": 2,\n        \"countryCode\": \"AT\",\n        \"countryName\": \"Austria\"\n      }\n    ]\n  },\n  \"candidateRecords\": [\n    {\n      \"product\": \"Aspirin 500 mg tablet\",\n      \"countryId\": 1,\n      \"countryCode\": \"DE\",\n      \"countryName\": \"Germany\"\n    },\n    {\n      \"product\": \"Aspirin 500mg\",\n      \"countryId\": 2,\n      \"countryCode\": \"AT\",\n      \"countryName\": \"Austria\"\n    },\n    {\n      \"product\": \"Ibuprofen 400mg\",\n      \"countryId\": 1,\n      \"countryCode\": \"DE\",\n      \"countryName\": \"Germany\"\n    },\n    {\n      \"product\": \"Paracetamol 1000mg\",\n      \"countryId\": 3,\n      \"countryCode\": \"FR\",\n      \"countryName\": \"France\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "http://localhost:8001/match-products",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8001",
+              "path": [
+                "match-products"
+              ]
+            },
+            "description": "Find similar products with country/region awareness. Prioritizes matches from invoice's country or supplier's countries.\n\nResponse includes country information for each match."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "API Documentation",
+      "item": [
+        {
+          "name": "OpenAPI Docs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8001/docs",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8001",
+              "path": [
+                "docs"
+              ]
+            },
+            "description": "Interactive API documentation (Swagger UI)"
+          },
+          "response": []
+        },
+        {
+          "name": "ReDoc Documentation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8001/redoc",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8001",
+              "path": [
+                "redoc"
+              ]
+            },
+            "description": "Alternative API documentation (ReDoc)"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8001",
+      "type": "string"
+    }
+  ]
+}
