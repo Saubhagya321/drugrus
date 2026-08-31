@@ -34,6 +34,7 @@ Parsing guidance:
 - "name" MUST always be extracted exactly for a given product as it is present in the actual Invoice line items content : include the full product description (brand/product name, strength/dosage such as "80MCG", and pack/form descriptors such as "60 HB", "60 DOSER") exactly as printed in line items.
 - Do NOT truncate or shorten the product name across different runs. Do NOT partially extract only the brand name when a fuller description (strength, dosage, pack count, form) is present in the same line item — always include the complete description.
 
+
 Detect the number format from the invoice:
 - If you see a comma used as a decimal, for example 3,7605, or a number with both dot and comma, for example 11.281,50, it is EU-style.
 - For EU-style numbers, treat . as a thousands separator and , as a decimal separator.
@@ -42,10 +43,9 @@ Detect the number format from the invoice:
 
 Product Code Extraction Rules:
 - Product codes must be unique for each product within the same invoice.
-- Extract product codes only from columns that represent a product identifier, such as article number, item code, item number, product code, code, CODE, PZN, PHZNR, SKU, catalog/reference number, or equivalent terms in any language.
+- Extract product codes only from columns that represent a product identifier, such as article number, item code, item number, product code, code, CODE, PZN, PHZNR, SKU, catalog/reference number, or equivalent terms in any language. A column headed "REF" (or any localized abbreviation of "reference") IS a valid product code column — always treat it as such.
 - If NO valid product code column exists, Extract the product code from the product description ONLY when it is explicitly labeled with terms such as ref., reference, article, art., item no., catalog no., SKU, PZN, PHZNR, or equivalent terms in any language.
   Example: Cellona Shoe size M (39-41) ref. 16474 1pc/box Lohmann → "productCode": "16474". Do not extract unlabeled numbers from product descriptions.
-- Sometimes product code under 
 - Identify the product code column by meaning, not exact text matching. The column header may appear in any language, abbreviation, casing, or format.
 - If a column clearly represents a product identifier, always extract its values as productCode.
 - If a product code value starts with "*", remove the "*" and return only the remaining value.
@@ -54,6 +54,7 @@ Product Code Extraction Rules:
 - DO NOT extract codes from parentheses or from inline text unless they are clearly labeled with one of the valid rules defined above for product code identifier.
 - Do NOT infer product codes from unrelated fields like EAN, HS Code, IEC, Code no., batch numbers, PO, expiry dates, or AB250332A as product code.
 - For supplier EURO Serve, MUST keep the productCode as null.
+- When a row shows both an EAN column and a REF column, productCode MUST come from the REF column (after stripping any leading "*") and the EAN value MUST go into candidateProdCode. Never leave productCode null just because REF has a "*" prefix or because there is also an EAN present.
 
 Candidate Product Code Rules:
 - Always fill productCode first, following the Product Code Extraction Rules above. productCode must contain only the single best-validated product identifier.
