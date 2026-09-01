@@ -10,6 +10,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import JSONResponse
 from invoice_processing import extract_full_invoice_structure
 from similarity_search_updated import top_matches, MatchRequest, top_matches_updated, MatchRequest_Updated
+from middleware.post_process import drop_empty_invoices
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
@@ -77,6 +78,7 @@ async def extract_invoice(file: UploadFile = File(...)):
                 content=result,
                 status_code=503
             )
+        result = drop_empty_invoices(result)
         logger.info("Invoice extraction completed successfully")
         return JSONResponse(content=result)
 
