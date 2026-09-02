@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from typing import List
 from pydantic import BaseModel
 import re
+import math
 from rapidfuzz import fuzz
 from sentence_transformers import SentenceTransformer, util
 import logging
@@ -140,8 +141,51 @@ def number_score(actual, candidate):
 # Fuzzy Similarity
 # -----------------------------
 def fuzzy_score(actual, candidate):
-    """Calculate fuzzy text similarity."""
-    return fuzz.token_sort_ratio(actual, candidate)
+    """Calculate fuzzy text similarity, robust to extra trailing tokens (legal suffixes etc.)."""
+    return fuzz.WRatio(actual, candidate)
+
+
+# -----------------------------
+# Keyword (IDF-weighted) Similarity
+# -----------------------------
+def build_idf_table(candidate_texts):
+    """Build a token -> IDF table over a candidate corpus.
+
+    Common tokens across the corpus (e.g. "PHARMA", "LTD") get a low IDF so they
+    stop dominating the score; rare, discriminative tokens (e.g. "AXOL") get a
+    high IDF so a match on them counts for much more.
+    """
+    document_frequency = {}
+    total_documents = len(candidate_texts)
+
+    for text in candidate_texts:
+        for token in set(text.split()):
+            document_frequency[token] = document_frequency.get(token, 0) + 1
+
+    idf_table = {
+        token: math.log((total_documents + 1) / (df + 1)) + 1
+        for token, df in document_frequency.items()
+    }
+    idf_table["__default__"] = math.log(total_documents + 1) + 1
+    return idf_table
+
+
+def keyword_score(actual, candidate, idf_table):
+    """Calculate IDF-weighted token overlap between actual and candidate."""
+    actual_tokens = set(actual.split())
+    candidate_tokens = set(candidate.split())
+
+    if not actual_tokens:
+        return 0
+
+    default_idf = idf_table.get("__default__", 1)
+    overlap_weight = sum(idf_table.get(t, default_idf) for t in actual_tokens & candidate_tokens)
+    total_weight = sum(idf_table.get(t, default_idf) for t in actual_tokens)
+
+    if total_weight == 0:
+        return 0
+
+    return (overlap_weight / total_weight) * 100
 
 
 # -----------------------------
@@ -160,7 +204,7 @@ def embedding_score(actual, candidate):
 # -----------------------------
 # Hybrid Score
 # -----------------------------
-def hybrid_score(actual, candidate):
+def hybrid_score(actual, candidate, idf_table):
     """Calculate final weighted similarity score."""
     try:
         actual_norm = normalize_text(actual)
@@ -168,18 +212,22 @@ def hybrid_score(actual, candidate):
 
         num = number_score(actual_norm, candidate_norm)
         fuzzy = fuzzy_score(actual_norm, candidate_norm)
+        keyword = keyword_score(actual_norm, candidate_norm, idf_table)
         embed = embedding_score(actual_norm, candidate_norm)
         score = (
-            0.5 * num +
-            0.3 * fuzzy +
-            0.2 * embed
+            0.10 * num +
+            0.35 * fuzzy +
+            0.30 * keyword +
+            0.25 * embed
         )
         logger.debug(
-            "Hybrid score calculated: actual=%s candidate=%s number_score=%.2f fuzzy_score=%.2f embedding_score=%.2f hybrid_score=%.2f",
+            "Hybrid score calculated: actual=%s candidate=%s number_score=%.2f fuzzy_score=%.2f "
+            "keyword_score=%.2f embedding_score=%.2f hybrid_score=%.2f",
             actual_norm,
             candidate_norm,
             num,
             fuzzy,
+            keyword,
             embed,
             score,
         )
@@ -200,7 +248,8 @@ def top_matches(actual, candidates, top_n=50):
     logger.info("Starting supplier similarity match: candidates=%s top_n=%s", len(candidates), top_n)
     logger.debug("Supplier similarity input: actual=%s candidates=%s", actual, candidates)
     try:
-        scores = [(cand, hybrid_score(actual, cand)) for cand in candidates]
+        idf_table = build_idf_table([normalize_text(cand) for cand in candidates])
+        scores = [(cand, hybrid_score(actual, cand, idf_table)) for cand in candidates]
         scores.sort(key=lambda x: x[1], reverse=True)
         matches = scores[:top_n]
         logger.info("Supplier similarity match completed: returned_matches=%s", len(matches))
@@ -239,15 +288,15 @@ def top_matches_updated(request: MatchRequest_Updated, top_n=50):
     stack3 = []   # Remaining countries
 
     try:
-        for candidate in request.candidateRecords:
+        descriptions = [
+            candidate.supplierProductDescription if candidate.supplierProductDescription else candidate.product
+            for candidate in request.candidateRecords
+        ]
+        idf_table = build_idf_table([normalize_text(d) for d in descriptions])
 
-            description = (
-                candidate.supplierProductDescription
-                if candidate.supplierProductDescription
-                else candidate.product
-            )
+        for candidate, description in zip(request.candidateRecords, descriptions):
 
-            score = hybrid_score(actual, description)
+            score = hybrid_score(actual, description, idf_table)
 
             result = {
                 "product": candidate.product,
