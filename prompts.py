@@ -55,6 +55,7 @@ Product Code Extraction Rules:
 - Do NOT infer product codes from unrelated fields like EAN, HS Code, IEC, Code no., batch numbers, PO, expiry dates, or AB250332A as product code.
 - For supplier EURO Serve, MUST keep the productCode as null.
 - When a row shows both an EAN column and a REF column, productCode MUST come from the REF column (after stripping any leading "*") and the EAN value MUST go into candidateProdCode. Never leave productCode null just because REF has a "*" prefix or because there is also an EAN present.
+-Some invoices mislabel their product-code column as "Country" or "Country Code" (a template/translation error on the supplier's part). If a column labeled "Country" or "Country Code" contains values that are NOT valid country codes/names (i.e. not 2-3 letter ISO codes like FR, DE, PT, GB, or full country names), but instead multi-digit numeric values, treat that column as the true Product Code column and extract its values as productCode.
 
 Candidate Product Code Rules:
 - Always fill productCode first, following the Product Code Extraction Rules above. productCode must contain only the single best-validated product identifier.
@@ -62,10 +63,10 @@ Candidate Product Code Rules:
 - candidateProdCode must NEVER replace or repeat the value already used in productCode.
 - Extract candidateProdCode values only from columns/text that look like genuine product identifiers — do not pull arbitrary unrelated numbers.
 - If multiple candidate identifiers exist on the same line item, MUST return them all as an array, in the order they appear.
-- candidateProCode MUST be an empty array ONLY when productCode itself is NULL. 
 - If productCode is not null, candidateProdCode MUST contain at least one entry — re-inspect the line item carefully for a secondary identifier before leaving it empty.
+- If the product name/description is preceded, on its own line within the same cell, by a long unlabeled numeric value in barcode/GTIN format (typically 12-14 digits, e.g.3400926776008), treat it as a candidate product identifier and include it in candidateProdCode. Do NOT merge it into "name", and do NOT discard it just because it has no explicit label like "ref."/"art."/"EAN". 
+- quantity and itemPerValue values MUST be numeric types.
 
-quantity and itemPerValue values MUST be numeric types.
 """
 
 INVOICE_SCHEMA = """
