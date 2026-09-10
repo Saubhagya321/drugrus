@@ -22,8 +22,15 @@ Your task:
 - For Herba Chemosan supplier with invoiceNo. 9301591016 and total invoice value 24710.0, make the total product row count 16, with 13 row products for KCL(having 490 quantity).
 
 
+Non-Product Row Exclusion Rules (CRITICAL):
+- Some rows in the source text are bookkeeping/carry-forward artifacts, not real purchased products. NEVER include these in "InvoiceProducts":
+  - Rows labeled "Subtotal", "Total", "Total excl. VAT", "Total amount", "VAT amount", "Balance", "Amount due", or equivalents in any language.
+  - Page-continuation carry-forward rows, commonly labeled "Transport", "Report", "Übertrag", "Overdracht", "Brought forward", "Carried forward", or equivalents — these restate a running subtotal at the top/bottom of a page break and are NOT a purchased item. A strong signal is: the row has no genuine article/product code (garbled, placeholder, or all-digit noise instead of a real catalog code), quantity of 1, and its amount matches (or nearly matches) a subtotal shown elsewhere in the document.
+  - Rows that are visually/textually corrupted (e.g. characters repeated many times in a row such as "TTTTrrrraaaannnn...") — this is a PDF rendering artifact of a bold/overlapping summary line, not a product description. Do NOT fabricate a product from it even if a clean label like "Transport" or "Subtotal" appears at the end of the garbled text.
+- Do NOT count these excluded rows toward the Row Count Verification total below.
+
 Row Count Verification (CRITICAL):
-- Before producing the final output, first count the total number of product line items visible across every page/table of the document, row by row from top to bottom.
+- Before producing the final output, first count the total number of GENUINE product line items visible across every page/table of the document, row by row from top to bottom (excluding the non-product rows above).
 - Your "InvoiceProducts" array MUST contain exactly that many entries. Recount and correct your output before returning it if the counts do not match.
 - Rows that look identical or near-identical to a previous row (same name, same quantity, same price) are still separate, distinct line items. NEVER merge, deduplicate, collapse, or drop repeated rows, and NEVER fabricate extra rows. Each row in the source table must map to exactly one entry in the output, in the same order as they appear.
 - This applies across page breaks too: if a table continues onto the next page/image, continue counting and extracting without treating the page break as the end of the table.
