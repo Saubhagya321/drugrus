@@ -1,5 +1,7 @@
 import io
+import sys
 import logging
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import uvicorn
@@ -11,6 +13,11 @@ from fastapi.responses import JSONResponse
 from invoice_processing import extract_full_invoice_structure
 from similarity_search_updated import top_matches, MatchRequest, top_matches_updated, MatchRequest_Updated
 from middleware.post_process import drop_empty_invoices
+
+# Windows consoles default to cp1252, which crashes on non-Latin1 invoice text (e.g. Polish/Baltic characters)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 LOG_DIR.mkdir(exist_ok=True)
@@ -92,7 +99,7 @@ async def extract_invoice(file: UploadFile = File(...)):
 @app.post("/match-supplier")
 async def match_products(request: MatchRequest):
     """Return supplier product matches using text similarity."""
-    logger.info("Supplier match request received: candidates=%s", len(request.candidates))
+    logger.info("API=/match-supplier | identity=%s | time=%s", request.actual, datetime.now().isoformat())
     logger.debug("Supplier match actual=%s candidates=%s", request.actual, request.candidates)
     try:
         results = top_matches(request.actual, request.candidates, top_n=50)
@@ -112,6 +119,7 @@ async def match_products(request: MatchRequest):
 @app.post("/match-products")
 async def match_products_updated(request: MatchRequest_Updated):
     """Return country-aware product matches."""
+    logger.info("API=/match-products | identity=%s | time=%s", request.actual, datetime.now().isoformat())
     logger.info(
         "Country-aware product match request received: candidates=%s invoice_country=%s supplier_countries=%s",
         len(request.candidateRecords),

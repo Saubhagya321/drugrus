@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from typing import List
 from pydantic import BaseModel
+import os
 import re
+import json
 import math
+from datetime import datetime
 from rapidfuzz import fuzz
 from sentence_transformers import SentenceTransformer, util
 import logging
@@ -44,6 +47,47 @@ logger = logging.getLogger(__name__)
 
 for noisy_logger in ["httpx", "httpcore", "openai", "urllib3"]:
     logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
+# When DEBUG_FILE_MODE is on, every match request writes a score-breakdown
+# JSON to api_run/ showing exactly what number/fuzzy/keyword/embedding
+# component contributed to each candidate's final score.
+DEBUG_FILE_MODE = os.environ.get("DEBUG_FILE_MODE", "false").strip().lower() in ("1", "true", "yes")
+
+API_RUN_DIR = Path(__file__).resolve().parent / "api_run"
+API_RUN_DIR.mkdir(exist_ok=True)
+
+
+def _safe_identity(identity: str) -> str:
+    """Sanitize a free-text identity (supplier/product name) for use in a filename."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", identity or "").strip("_")
+    return cleaned[:80] or "unknown"
+
+
+def _save_match_debug_file(api_name: str, identity: str, entries: list) -> None:
+    """Persist a per-candidate score breakdown for this match request under api_run/.
+
+    Only runs when DEBUG_FILE_MODE is enabled via the environment, since this
+    writes one file per request and is meant for debugging/score-tuning, not
+    production traffic.
+    """
+    if not DEBUG_FILE_MODE:
+        return
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = API_RUN_DIR / f"{api_name}_{_safe_identity(identity)}_{timestamp}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "api": api_name,
+            "identity": identity,
+            "timestamp": datetime.now().isoformat(),
+            "matches": entries,
+        }
+        filepath = run_dir / "score_breakdown.json"
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2, ensure_ascii=False)
+        logger.info("Saved match score breakdown file: %s", filepath)
+    except Exception:
+        logger.exception("Failed to save match score breakdown file for identity=%s", identity)
 
 # Load embedding model once at startup
 logger.info("Loading sentence transformer model for similarity search")
@@ -170,17 +214,31 @@ def build_idf_table(candidate_texts):
     return idf_table
 
 
+POSITION_DECAY = 0.8  # each later word in `actual` carries 80% of the previous word's weight
+
+
 def keyword_score(actual, candidate, idf_table):
-    """Calculate IDF-weighted token overlap between actual and candidate."""
-    actual_tokens = set(actual.split())
+    """Calculate IDF- and position-weighted token overlap between actual and candidate.
+
+    Words are weighted by both rarity (IDF) and their position in `actual` - earlier
+    words matter more, so a candidate sharing actual's leading word(s) outranks one
+    that only matches a trailing/common word, even if raw token overlap is similar.
+    """
+    actual_tokens = actual.split()
     candidate_tokens = set(candidate.split())
 
     if not actual_tokens:
         return 0
 
     default_idf = idf_table.get("__default__", 1)
-    overlap_weight = sum(idf_table.get(t, default_idf) for t in actual_tokens & candidate_tokens)
-    total_weight = sum(idf_table.get(t, default_idf) for t in actual_tokens)
+
+    total_weight = 0
+    overlap_weight = 0
+    for position, token in enumerate(actual_tokens):
+        weight = idf_table.get(token, default_idf) * (POSITION_DECAY ** position)
+        total_weight += weight
+        if token in candidate_tokens:
+            overlap_weight += weight
 
     if total_weight == 0:
         return 0
@@ -204,8 +262,13 @@ def embedding_score(actual, candidate):
 # -----------------------------
 # Hybrid Score
 # -----------------------------
-def hybrid_score(actual, candidate, idf_table):
-    """Calculate final weighted similarity score."""
+def hybrid_score(actual, candidate, idf_table, return_breakdown=False):
+    """Calculate final weighted similarity score.
+
+    When return_breakdown=True, also returns a dict showing each component's
+    raw score and its weighted contribution to the final hybrid score, so
+    callers can log/persist which factor drove a given match.
+    """
     try:
         actual_norm = normalize_text(actual)
         candidate_norm = normalize_text(candidate)
@@ -214,12 +277,13 @@ def hybrid_score(actual, candidate, idf_table):
         fuzzy = fuzzy_score(actual_norm, candidate_norm)
         keyword = keyword_score(actual_norm, candidate_norm, idf_table)
         embed = embedding_score(actual_norm, candidate_norm)
-        score = (
-            0.10 * num +
-            0.35 * fuzzy +
-            0.30 * keyword +
-            0.25 * embed
-        )
+
+        num_contribution = 0.10 * num
+        fuzzy_contribution = 0.35 * fuzzy
+        keyword_contribution = 0.30 * keyword
+        embed_contribution = 0.25 * embed
+        score = num_contribution + fuzzy_contribution + keyword_contribution + embed_contribution
+
         logger.debug(
             "Hybrid score calculated: actual=%s candidate=%s number_score=%.2f fuzzy_score=%.2f "
             "keyword_score=%.2f embedding_score=%.2f hybrid_score=%.2f",
@@ -231,6 +295,25 @@ def hybrid_score(actual, candidate, idf_table):
             embed,
             score,
         )
+
+        if return_breakdown:
+            breakdown = {
+                "raw_scores": {
+                    "number_score": round(num, 2),
+                    "fuzzy_score": round(fuzzy, 2),
+                    "keyword_score": round(keyword, 2),
+                    "embedding_score": round(embed, 2),
+                },
+                "weighted_contributions": {
+                    "number": round(num_contribution, 2),
+                    "fuzzy": round(fuzzy_contribution, 2),
+                    "keyword": round(keyword_contribution, 2),
+                    "embedding": round(embed_contribution, 2),
+                },
+                "hybrid_score": round(score, 2),
+            }
+            return score, breakdown
+
         return score
 
     except Exception:
@@ -239,7 +322,7 @@ def hybrid_score(actual, candidate, idf_table):
 
 
 # -----------------------------
-# Supplier similarity matching based on descriptions 
+# Supplier similarity matching based on descriptions
 # -----------------------------
 
 # Best match selection 
@@ -249,11 +332,26 @@ def top_matches(actual, candidates, top_n=50):
     logger.debug("Supplier similarity input: actual=%s candidates=%s", actual, candidates)
     try:
         idf_table = build_idf_table([normalize_text(cand) for cand in candidates])
-        scores = [(cand, hybrid_score(actual, cand, idf_table)) for cand in candidates]
+
+        debug_entries = []
+        scores = []
+        for cand in candidates:
+            if DEBUG_FILE_MODE:
+                score, breakdown = hybrid_score(actual, cand, idf_table, return_breakdown=True)
+                debug_entries.append({"candidate": cand, "score": round(score, 2), "breakdown": breakdown})
+            else:
+                score = hybrid_score(actual, cand, idf_table)
+            scores.append((cand, score))
+
         scores.sort(key=lambda x: x[1], reverse=True)
         matches = scores[:top_n]
         logger.info("Supplier similarity match completed: returned_matches=%s", len(matches))
         logger.debug("Supplier similarity sorted matches=%s", matches)
+
+        if DEBUG_FILE_MODE:
+            debug_entries.sort(key=lambda e: e["score"], reverse=True)
+            _save_match_debug_file("match-supplier", actual, debug_entries)
+
         return matches
     except Exception:
         logger.exception("Supplier similarity match failed")
@@ -294,9 +392,14 @@ def top_matches_updated(request: MatchRequest_Updated, top_n=50):
         ]
         idf_table = build_idf_table([normalize_text(d) for d in descriptions])
 
+        debug_entries = []
         for candidate, description in zip(request.candidateRecords, descriptions):
 
-            score = hybrid_score(actual, description, idf_table)
+            if DEBUG_FILE_MODE:
+                score, breakdown = hybrid_score(actual, description, idf_table, return_breakdown=True)
+            else:
+                score = hybrid_score(actual, description, idf_table)
+                breakdown = None
 
             result = {
                 "product": candidate.product,
@@ -333,6 +436,18 @@ def top_matches_updated(request: MatchRequest_Updated, top_n=50):
                 description,
             )
 
+            if DEBUG_FILE_MODE:
+                debug_entries.append(
+                    {
+                        "product": candidate.product,
+                        "supplierProductDescription": description,
+                        "countryCode": candidate.countryCode,
+                        "priority_stack": priority_stack,
+                        "score": round(score, 2),
+                        "breakdown": breakdown,
+                    }
+                )
+
         # Apply existing similarity ranking within each stack
         stack1.sort(key=lambda x: x["score"], reverse=True)
         stack2.sort(key=lambda x: x["score"], reverse=True)
@@ -353,6 +468,15 @@ def top_matches_updated(request: MatchRequest_Updated, top_n=50):
         matches = final_results[:top_n]
         logger.info("Country-aware matching completed: returned_matches=%s", len(matches))
         logger.debug("Country-aware final matches=%s", matches)
+
+        if DEBUG_FILE_MODE:
+            debug_entries.sort(
+                key=lambda e: (
+                    {"invoice_country": 0, "supplier_country": 1, "other_country": 2}[e["priority_stack"]],
+                    -e["score"],
+                )
+            )
+            _save_match_debug_file("match-products", actual, debug_entries)
 
         return matches
     except Exception:
