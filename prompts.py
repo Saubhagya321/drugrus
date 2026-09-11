@@ -63,15 +63,17 @@ Product Code Extraction Rules:
 - For supplier EURO Serve, MUST keep the productCode as null.
 - When a row shows both an EAN column and a REF column, productCode MUST come from the REF column (after stripping any leading "*") and the EAN value MUST go into candidateProdCode. Never leave productCode null just because REF has a "*" prefix or because there is also an EAN present.
 -Some invoices mislabel their product-code column as "Country" or "Country Code" (a template/translation error on the supplier's part). If a column labeled "Country" or "Country Code" contains values that are NOT valid country codes/names (i.e. not 2-3 letter ISO codes like FR, DE, PT, GB, or full country names), but instead multi-digit numeric values, treat that column as the true Product Code column and extract its values as productCode.
+- PRECEDENCE OVER FORMAT (CRITICAL): if the value comes from a column explicitly labeled as a product identifier (REFERENCE, REF, article number, item code, code, SKU, catalog/reference number, or equivalent terms in any language per the rules above), it MUST be used as productCode — even if the value happens to look like a barcode/GTIN/EAN (12-14 digits) or is a long numeric string. The barcode-like appearance of a value is NEVER a reason to demote it to candidateProdCode when it comes from a labeled identifier column.
+- If the labeled identifier column (e.g. REFERENCE) shows multiple space-separated numeric groups on the same row (e.g. "34009 3004007 2"), concatenate all groups in order into a single string with no spaces and use that as productCode (e.g. "34009 3004007 2" -> "3400930040072"). Do this per row; do not carry the value over to unrelated rows.
 
 Candidate Product Code Rules:
-- Always fill productCode first, following the Product Code Extraction Rules above. productCode must contain only the single best-validated product identifier.
+- Always fill productCode first, following the Product Code Extraction Rules above. productCode must contain only the single best-validated product identifier. Only after productCode is filled (or confirmed null per the rules above) should you consider candidateProdCode.
 - candidateProdCode is a fallback list: any OTHER line-item value that could reasonably be a product identifier but was NOT selected as productCode (e.g. a secondary code, alternate reference number, or similar product code identifier on the same row).
 - candidateProdCode must NEVER replace or repeat the value already used in productCode.
 - Extract candidateProdCode values only from columns/text that look like genuine product identifiers — do not pull arbitrary unrelated numbers.
 - If multiple candidate identifiers exist on the same line item, MUST return them all as an array, in the order they appear.
 - If productCode is not null, candidateProdCode MUST contain at least one entry — re-inspect the line item carefully for a secondary identifier before leaving it empty.
-- If the product name/description is preceded, on its own line within the same cell, by a long unlabeled numeric value in barcode/GTIN format (typically 12-14 digits, e.g.3400926776008), treat it as a candidate product identifier and include it in candidateProdCode. Do NOT merge it into "name", and do NOT discard it just because it has no explicit label like "ref."/"art."/"EAN". 
+- If the product name/description is preceded, on its own line within the same cell, by a long unlabeled numeric value in barcode/GTIN format (typically 12-14 digits, e.g.3400926776008) that is NOT the value of any labeled identifier column, treat it as a candidate product identifier and include it in candidateProdCode. Do NOT merge it into "name", and do NOT discard it just because it has no explicit label like "ref."/"art."/"EAN". This rule applies only when no labeled identifier column claimed the value as productCode above.
 - quantity and itemPerValue values MUST be numeric types.
 
 """
