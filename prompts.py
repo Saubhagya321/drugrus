@@ -40,7 +40,9 @@ Parsing guidance:
 - If Description and Unit are concatenated, exclude the unit token from "name".
 - "name" MUST always be extracted exactly for a given product as it is present in the actual Invoice line items content : include the full product description (brand/product name, strength/dosage such as "80MCG", and pack/form descriptors such as "60 HB", "60 DOSER") exactly as printed in line items.
 - Do NOT truncate or shorten the product name across different runs. Do NOT partially extract only the brand name when a fuller description (strength, dosage, pack count, form) is present in the same line item — always include the complete description.
-- If the line item cell contains a batch/lot code on its own line below the description (e.g. "AB250307B", "AB250297A and AB250307A"), that code is part of "name" too — include it exactly as printed, do not drop it.
+- If the line item cell contains a bare code as its OWN standalone line directly below the description, with NO label word anywhere on that line (e.g. a line that is only "AB250307B", or only "AB250297A and AB250307A"), that code is part of "name" too — include it exactly as printed, do not drop it.
+- If a line below the description carries a label word — "INTRASTAT", "HS", "Batch", "Lot", "Exp"/"Expiry", "EAN", "REF"/"Reference", "Art."/"Article" or equivalents in any language — exclude that ENTIRE line from "name", even the parts of it that aren't the label itself (e.g. "Exp 09/2026 Batch PS6M-R98" must be left out of "name" completely, not just the "Exp 09/2026" portion). Those labeled values belong elsewhere (productCode/candidateProdCode) per the rules below, never in "name".
+- When "name" is built from multiple lines/segments of the same cell (e.g. a wrapped description plus a bare code line kept per the rule above), join them with a single space. Never output literal line breaks inside the "name" string.
 
 
 Detect the number format from the invoice (determine this ONCE for the whole document, not per-field):
