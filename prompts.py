@@ -40,13 +40,15 @@ Parsing guidance:
 - If Description and Unit are concatenated, exclude the unit token from "name".
 - "name" MUST always be extracted exactly for a given product as it is present in the actual Invoice line items content : include the full product description (brand/product name, strength/dosage such as "80MCG", and pack/form descriptors such as "60 HB", "60 DOSER") exactly as printed in line items.
 - Do NOT truncate or shorten the product name across different runs. Do NOT partially extract only the brand name when a fuller description (strength, dosage, pack count, form) is present in the same line item — always include the complete description.
+- If the line item cell contains a batch/lot code on its own line below the description (e.g. "AB250307B", "AB250297A and AB250307A"), that code is part of "name" too — include it exactly as printed, do not drop it.
 
 
-Detect the number format from the invoice:
-- If you see a comma used as a decimal, for example 3,7605, or a number with both dot and comma, for example 11.281,50, it is EU-style.
-- For EU-style numbers, treat . as a thousands separator and , as a decimal separator.
-- Normalize EU-style numbers by removing thousands dots and converting , to . Example: 11.281,50 -> 11281.50, 3.000 -> 3000.
-- If numbers use dot as decimal, for example 3.76, and no comma-decimal pattern exists, it is US/UK-style. Keep dots as decimals and do not remove them.
+Detect the number format from the invoice (determine this ONCE for the whole document, not per-field):
+- A comma followed by exactly 3 digits (e.g. 20,000) is AMBIGUOUS by itself — do not assume it's decimal. Only call a number EU-style if the document has a dot+comma together (11.281,50) or a comma followed by something other than 3 digits (3,7605).
+- If the document also has dot-decimal prices (e.g. 2.10, 43.50), that proves DOT is the decimal separator, so commas elsewhere are THOUSANDS separators (20,000 -> 20000), even when followed by exactly 3 digits.
+- Sanity check: quantity x itemPerValue should ~= that row's net/line total. If a comma-as-decimal reading fails this check, re-read the comma as a thousands separator instead.
+- For EU-style numbers, treat . as a thousands separator and , as a decimal separator. Normalize by removing thousands dots and converting , to . Example: 11.281,50 -> 11281.50, 3.000 -> 3000.
+- For US/UK-style numbers, keep dots as decimals and strip commas as thousands separators. Example: 20,000 -> 20000.
 
 Product Code Extraction Rules:
 - Product codes must be unique for each product within the same invoice.
