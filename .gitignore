@@ -52,3 +52,10 @@ dist/
 Collection-InvoiceFiles 1/
 Collection-InvoiceFiles 1.zip
 scripts/
+
+# Local testing/dev artifacts
+commands.md
+testing_logs/
+batch_test.py
+batch_results/
+.claude/

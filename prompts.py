@@ -9,14 +9,16 @@ Your task:
 - Identify and extract values for the fields listed below. Infer fields even if written in another language.
 - Country and currency must reflect the supplier (not the buyer), and must always be written in English regardless of the invoice's language.
 - The invoice typically lists both a buyer (often DrugsRus Ltd.) and a supplier. Extract only the supplier's details, never the buyer's.
-- Supplier name: prefer trading/brand name; fallback to legal entity. Maintain proper spaces between words where required. example: "TheSimplePharma" -> The Simple Pharma. 
+- Supplier name: prefer trading/brand name; fallback to legal entity. Maintain proper spaces between words where required. example: "TheSimplePharma" -> The Simple Pharma.
+- If the logo/header text is a short acronym or abbreviation (2-4 letters), cross-check it against any fuller company/trading name spelled out elsewhere in the document (e.g. in a subtitle, legal entity line, or footer). If the full name's initials match the acronym but the acronym's exact letters differ from the logo text (e.g. logo reads "FR PHARMA" but the full name "Réflexe Répartition Pharma" spells out to "RR Pharma"), the logo text is likely an OCR misread — use the acronym derived from the fuller spelled-out name instead.
 - If you are not certain, do NOT guess. Return null instead of incorrect supplier values.
 - The source document may be in ANY language, but the output field names must always follow the exact schema below.
 - If a value is missing, return it as null.
 - DO NOT skip any entry or product.
 - invoiceDate format: dd/mm/yyyy, for example "16/10/2025".
 - invoiceValue format: Float only.
-- itempervalue : itempervalue represents the monetary value charged for a single unit for the product. extract ONLY the final unit price for one item. NEVER extract quantities, package sizes, percentages, product codes, tax values, discounts, or line totals.
+- itemPerValue : itemPerValue represents the monetary value charged for a single unit for the product. extract ONLY the final unit price for one item. NEVER extract quantities, package sizes, percentages, product codes, tax values, discounts, or line totals.
+- Output JSON key names MUST match the schema's casing EXACTLY (e.g. "itemPerValue", not "itempervalue", "ItemPerValue", or any other casing variant). Never alter the casing of a key name for any product, even if earlier rows in the same response used correct casing — verify every single row's keys match the schema before returning.
 - If a product appears in the invoice content but not in the table, include it in output.
 - For SGS Pharma Magyarorszag Kft. supplier with invoiceNo. SGS-2025-171, do not miss the product "Colistimethat-sodium1MIU -20packs 1.55 -31 TAHK 0 -31" if table row collapse occurs.
 - For Herba Chemosan supplier with invoiceNo. 9301591016 and total invoice value 24710.0, make the total product row count 16, with 13 row products for KCL(having 490 quantity).
@@ -41,8 +43,10 @@ Parsing guidance:
 - "name" MUST always be extracted exactly for a given product as it is present in the actual Invoice line items content : include the full product description (brand/product name, strength/dosage such as "80MCG", and pack/form descriptors such as "60 HB", "60 DOSER") exactly as printed in line items.
 - Do NOT truncate or shorten the product name across different runs. Do NOT partially extract only the brand name when a fuller description (strength, dosage, pack count, form) is present in the same line item — always include the complete description.
 - If the line item cell contains a bare code as its OWN standalone line directly below the description, with NO label word anywhere on that line (e.g. a line that is only "AB250307B", or only "AB250297A and AB250307A"), that code is part of "name" too — include it exactly as printed, do not drop it.
-- If a line below the description carries a label word — "INTRASTAT", "HS", "Batch", "Lot", "Exp"/"Expiry", "EAN", "REF"/"Reference", "Art."/"Article" or equivalents in any language — exclude that ENTIRE line from "name", even the parts of it that aren't the label itself (e.g. "Exp 09/2026 Batch PS6M-R98" must be left out of "name" completely, not just the "Exp 09/2026" portion). Those labeled values belong elsewhere (productCode/candidateProdCode) per the rules below, never in "name".
+- If a line below the description carries a label word — "INTRASTAT", "HS", "Batch", "Lot", "Exp"/"Expiry", "EAN", "REF"/"Reference", "Art."/"Article", "temperature"/"temperaturedescription" or equivalents in any language — exclude that ENTIRE line from "name", even the parts of it that aren't the label itself (e.g. "Exp 09/2026 Batch PS6M-R98" must be left out of "name" completely, not just the "Exp 09/2026" portion). Those labeled values belong elsewhere (productCode/candidateProdCode) per the rules below, never in "name".
 - When "name" is built from multiple lines/segments of the same cell (e.g. a wrapped description plus a bare code line kept per the rule above), join them with a single space. Never output literal line breaks inside the "name" string.
+- If a line/segment within the product cell is delivery/shipping instructions, buyer name/address, or administrative reference text — signaled by labels or content such as "Customer delivery instructions", "Delivery instructions", a repeated buyer name/address block, VAT/NIF numbers, or a "FOR INVOICE <no>" cross-reference — exclude that entire segment from "name" only. These are logistics/admin notes, not part of the product description, even when they appear in the same cell as the product line.
+- Excluding instruction/address segments from "name" NEVER means dropping the row itself: the row still counts as one line item under Row Count Verification, with its quantity/price/productCode extracted as normal. Use whatever text remains after exclusion (e.g. an Incoterm code like "FCA ALICANTE", or a short heading) as "name" — do not return an empty InvoiceProducts entry or omit the row entirely just because most of the cell was instructional text.
 
 
 Detect the number format from the invoice (determine this ONCE for the whole document, not per-field):
@@ -61,6 +65,7 @@ Product Code Extraction Rules:
 - If a column clearly represents a product identifier, always extract its values as productCode.
 - If a product code value starts with "*", remove the "*" and return only the remaining value.
 - Product codes must be unique per product. If the same code value is assigned to two or more DIFFERENT products in the invoice (not just repeated for the same product across rows), the code is unreliable, do not consider it as Product Code.
+- Rows with the identical "name" and identical REFERENCE/code, split across multiple lines because of a different Lot/Batch number, expiry date, or delivery/parcel grouping, are the SAME product shipped in separate batches — this is NOT the "different products" case above. Extract productCode normally on EVERY such row; never null it out just because the same code also appears on another row with the same product name.
 - If a description includes something like CNK:1564789, extract and return the product code as 1564789.
 - DO NOT extract codes from parentheses or from inline text unless they are clearly labeled with one of the valid rules defined above for product code identifier.
 - Do NOT infer product codes from unrelated fields like EAN, HS Code, IEC, Code no., batch numbers, PO, expiry dates, or AB250332A as product code.
