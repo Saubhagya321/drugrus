@@ -217,12 +217,41 @@ def build_idf_table(candidate_texts):
 POSITION_DECAY = 0.8  # each later word in `actual` carries 80% of the previous word's weight
 
 
+PARTIAL_MATCH_THRESHOLD = 75  # min rapidfuzz partial_ratio (0-100) before a token pair earns any credit
+
+
+def _best_token_match(token, candidate_tokens):
+    """Best partial-match score of `token` against any candidate token, 0-1.
+
+    Exact matches score 1.0. Otherwise, credit is given for one token being
+    contained/overlapping within the other (e.g. "EURO" inside "EUROSERV"),
+    discounted by a length-ratio penalty so short tokens can't cheaply
+    "contain-match" long, unrelated words. A minimum partial_ratio threshold
+    filters out coincidental letter overlap between otherwise unrelated words
+    (e.g. "SERVE" vs "EURO" share letters but aren't a real match).
+    """
+    best = 0.0
+    for ctoken in candidate_tokens:
+        if token == ctoken:
+            return 1.0
+        partial = fuzz.partial_ratio(token, ctoken)
+        if partial < PARTIAL_MATCH_THRESHOLD:
+            continue
+        length_ratio = min(len(token), len(ctoken)) / max(len(token), len(ctoken))
+        score = (partial / 100) * length_ratio
+        if score > best:
+            best = score
+    return best
+
+
 def keyword_score(actual, candidate, idf_table):
     """Calculate IDF- and position-weighted token overlap between actual and candidate.
 
     Words are weighted by both rarity (IDF) and their position in `actual` - earlier
     words matter more, so a candidate sharing actual's leading word(s) outranks one
     that only matches a trailing/common word, even if raw token overlap is similar.
+    Matches are partial-credit (via `_best_token_match`) rather than exact-only, so
+    fused compound words (e.g. "EUROSERV") still get credit against "EURO"/"SERVE".
     """
     actual_tokens = actual.split()
     candidate_tokens = set(candidate.split())
@@ -237,8 +266,7 @@ def keyword_score(actual, candidate, idf_table):
     for position, token in enumerate(actual_tokens):
         weight = idf_table.get(token, default_idf) * (POSITION_DECAY ** position)
         total_weight += weight
-        if token in candidate_tokens:
-            overlap_weight += weight
+        overlap_weight += weight * _best_token_match(token, candidate_tokens)
 
     if total_weight == 0:
         return 0
