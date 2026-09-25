@@ -59,3 +59,7 @@ testing_logs/
 batch_test.py
 batch_results/
 .claude/
+
+# Local share/export copies of the project
+share/
+share.zip

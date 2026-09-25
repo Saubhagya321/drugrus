@@ -31,7 +31,8 @@ if not has_pipeline_file_handler:
     file_handler.setFormatter(logging.Formatter(log_format))
     root_logger.addHandler(file_handler)
 
-if not had_handlers:
+console_logging_enabled = os.environ.get('CONSOLE_LOGGING', 'true').strip().lower() != 'false'
+if not had_handlers and console_logging_enabled:
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter(log_format))

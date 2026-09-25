@@ -1,4 +1,5 @@
 import io
+import os
 import sys
 import logging
 from datetime import datetime
@@ -49,7 +50,8 @@ has_pipeline_file_handler = any(
 if not has_pipeline_file_handler:
     root_logger.addHandler(file_handler)
 
-if not had_handlers:
+console_logging_enabled = os.environ.get('CONSOLE_LOGGING', 'true').strip().lower() != 'false'
+if not had_handlers and console_logging_enabled:
     root_logger.addHandler(console_handler)
 
 logger = logging.getLogger(__name__)
